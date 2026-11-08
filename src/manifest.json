@@ -1,0 +1,15 @@
+{
+  "manifest_version": 1,
+  "id": "net.gangneux.joplin-simple-formula",
+  "app_min_version": "2.13",
+  "version": "1.3.0",
+  "name": "Simple Formula",
+  "description": "Inline calculations: write =(4*5) and see 20, live in the Markdown editor and in the preview. Name formulas with #name and reuse them in other formulas. The note text is never changed.",
+  "author": "Jérôme Gangneux",
+  "homepage_url": "https://github.com/jrmgx/joplin-plugin-simple-formula",
+  "repository_url": "https://github.com/jrmgx/joplin-plugin-simple-formula",
+  "keywords": ["math", "formula", "calculator", "inline", "calculation", "spreadsheet"],
+  "categories": ["editor", "productivity"],
+  "platforms": ["desktop", "mobile"],
+  "license": "MIT"
+}
