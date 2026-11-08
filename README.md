@@ -84,7 +84,7 @@ Add `#name` right after the closing parenthesis to name a formula. Other formula
 ```
 
 The rules:
-- **Characters:** a name uses letters only (`A-Z`, `a-z`) and is case-sensitive, so `price` and `Price` are different names. It must touch the `)`: `=(1)#total` names the formula, `=(1) #total` does not.
+- **Characters:** a name starts with a letter (`A-Z`, `a-z`), followed by letters or digits, as in `price`, `a1` or `q3total`. `1a` is not a valid name. Names are case-sensitive, so `price` and `Price` are different names. It must touch the `)`: `=(1)#total` names the formula, `=(1) #total` does not.
 - **Order:** a name can be used anywhere in the note, even above the line where it is defined.
 - **Precision:** references use the exact value, not the rounded display. `=(10/3)#t` then `=(t*3)` gives `10`.
 - **Live updates:** in the editor, changing a named formula immediately updates every formula that uses it.

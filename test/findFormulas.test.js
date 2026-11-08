@@ -24,6 +24,9 @@ test('#name suffix', () => {
   assert.deepStrictEqual(findFormulas('a =(4*5)#prix b'), [{ from: 2, to: 13, expr: '4*5', name: 'prix' }]);
   assert.deepStrictEqual(findFormulas('=(1)#'), [{ from: 0, to: 4, expr: '1', name: null }]);
   assert.deepStrictEqual(findFormulas('=(1)#1'), [{ from: 0, to: 4, expr: '1', name: null }]);
-  assert.deepStrictEqual(findFormulas('=(1)#ab2'), [{ from: 0, to: 7, expr: '1', name: 'ab' }]);
+  assert.deepStrictEqual(findFormulas('=(1)#ab2'), [{ from: 0, to: 8, expr: '1', name: 'ab2' }]);
+  assert.deepStrictEqual(findFormulas('=(1)#a1b2 x'), [{ from: 0, to: 9, expr: '1', name: 'a1b2' }]);
+  assert.deepStrictEqual(findFormulas('=(1)#1a'), [{ from: 0, to: 4, expr: '1', name: null }]);
+  assert.deepStrictEqual(findFormulas('=(1)#a_b'), [{ from: 0, to: 6, expr: '1', name: 'a' }]);
   assert.deepStrictEqual(findFormulas('=(1) #a'), [{ from: 0, to: 4, expr: '1', name: null }]);
 });

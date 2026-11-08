@@ -243,8 +243,8 @@ function findClosingParen(text, openIndex, limit = text.length) {
   return -1;
 }
 
-// Optional "#name" suffix right after the closing ")": letters only.
-const NAME_SUFFIX = /^#([A-Za-z]+)/;
+// Optional "#name" suffix right after the closing ")": a letter, then letters or digits.
+const NAME_SUFFIX = /^#([A-Za-z][A-Za-z0-9]*)/;
 
 function readName(text, afterClose) {
   const m = NAME_SUFFIX.exec(text.slice(afterClose, afterClose + 256));

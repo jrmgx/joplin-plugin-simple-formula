@@ -77,16 +77,34 @@ function createExtension() {
     },
   });
 
+  // Markdown formatting around a formula, applied to its result: CodeMirror does not
+  // reliably draw Joplin's bold/italic marks around a widget (e.g. "**=(x) bold**").
+  const FORMAT_CLASSES = {
+    StrongEmphasis: 'cm-simple-formula-strong',
+    Emphasis: 'cm-simple-formula-em',
+    Strikethrough: 'cm-simple-formula-strike',
+  };
+
+  function formatClasses(tree, pos) {
+    const classes = new Set();
+    for (let node = tree.resolveInner(pos, 1); node; node = node.parent) {
+      if (FORMAT_CLASSES[node.name]) classes.add(FORMAT_CLASSES[node.name]);
+    }
+    return [...classes].sort().join(' ');
+  }
+
   class FormulaWidget extends WidgetType {
-    constructor(formula) {
+    constructor(formula, format) {
       super();
       this.formula = formula;
+      this.format = format;
     }
 
     eq(other) {
       const a = this.formula;
       const b = other.formula;
       return (
+        this.format === other.format &&
         a.expr === b.expr &&
         a.name === b.name &&
         a.result.ok === b.result.ok &&
@@ -97,7 +115,9 @@ function createExtension() {
 
     toDOM() {
       const { expr, name, result } = this.formula;
-      return fillSpan(document.createElement('span'), expr, name, result);
+      const span = fillSpan(document.createElement('span'), expr, name, result);
+      if (this.format) span.className += ` ${this.format}`;
+      return span;
     }
 
     // Let clicks reach the editor so the cursor lands on the line and reveals the formula.
@@ -106,10 +126,17 @@ function createExtension() {
     }
   }
 
+  // On the line being edited the raw formula is shown, but Markdown parses e.g. a*1*2
+  // as emphasis: Joplin then hides the "*" (class cm-hidden) and italicizes the text.
+  // This mark covers the raw formula so the theme below can undo that formatting
+  // (it may end up inside or around Joplin's marks, both cases are handled).
+  const rawMark = Decoration.mark({ class: 'cm-simple-formula-raw' });
+
   function buildDecorations(view) {
     const { state } = view;
     const doc = state.doc;
     const { byPos } = state.field(scopeField);
+    const tree = syntaxTree(state);
 
     const activeLines = new Set();
     for (const range of state.selection.ranges) {
@@ -123,14 +150,15 @@ function createExtension() {
       let pos = from;
       while (pos <= to) {
         const line = doc.lineAt(pos);
-        if (!activeLines.has(line.number)) {
-          for (const f of findFormulas(line.text)) {
-            const formula = byPos.get(line.from + f.from);
-            if (!formula) continue; // in code
-            decorations.push(
-              Decoration.replace({ widget: new FormulaWidget(formula) }).range(formula.from, formula.to)
-            );
-          }
+        const active = activeLines.has(line.number);
+        for (const f of findFormulas(line.text)) {
+          const formula = byPos.get(line.from + f.from);
+          if (!formula) continue; // in code
+          decorations.push(
+            active
+              ? rawMark.range(formula.from, formula.to)
+              : Decoration.replace({ widget: new FormulaWidget(formula, formatClasses(tree, formula.from)) }).range(formula.from, formula.to)
+          );
         }
         pos = line.to + 1;
       }
@@ -229,6 +257,23 @@ function createExtension() {
   );
 
   const theme = EditorView.baseTheme({
+    '.cm-simple-formula-raw, .cm-simple-formula-raw *': {
+      fontStyle: 'normal !important',
+      fontWeight: 'inherit !important',
+      textDecoration: 'none !important',
+    },
+    '.cm-simple-formula-raw .cm-hidden, .cm-hidden:has(> .cm-simple-formula-raw)': {
+      width: 'auto !important',
+      height: 'auto !important',
+      marginRight: '0 !important',
+      opacity: '1 !important',
+      display: 'inline !important',
+      overflow: 'visible !important',
+      transform: 'none !important',
+    },
+    '.cm-simple-formula-strong': { fontWeight: 'bold' },
+    '.cm-simple-formula-em': { fontStyle: 'italic' },
+    '.cm-simple-formula-strike': { textDecoration: 'line-through' },
     '.cm-simple-formula': {
       borderBottom: '1px dotted currentColor',
     },

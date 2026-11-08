@@ -16,6 +16,10 @@ test('simple and forward references', () => {
   assert.deepStrictEqual(run('prix*1.2', '4*5#prix'), ['24', '20']);
 });
 
+test('names with digits', () => {
+  assert.deepStrictEqual(run('2#a1', '3#a2', 'a1*a2+1'), ['2', '3', '7']);
+});
+
 test('chained references', () => {
   assert.deepStrictEqual(run('c+1#b', 'b*2', '1#c'), ['2', '4', '1']);
 });
