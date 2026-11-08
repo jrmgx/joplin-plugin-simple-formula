@@ -113,7 +113,6 @@ The rules:
   - Live rendering needs the default Markdown editor (CodeMirror 6).
   - With the legacy Markdown editor, formulas are only computed in the preview.
   - The Rich Text editor is not supported.
-- **Tables.** In the editor, Joplin formats `*` surrounded by spaces as italics. Write `=(2*3*4)` rather than `=(2 * 3 * 4)` inside tables.
 - **Mobile.** The plugin is declared for mobile but has only been tested on desktop.
 - **Safety.** Formulas are computed by a small built-in arithmetic parser, not by `eval`. A note can never run code.
 

@@ -187,19 +187,135 @@ function createExtension() {
 
   // Joplin renders Markdown tables as its own widget (class "cm-tw-*"), which hides
   // the decorations above. Its cells are rendered with a hard-coded inline renderer
-  // and offer no hook, so formulas are replaced in the rendered cell DOM instead.
+  // and offer no hook. That renderer also eats "*" inside formulas (=(2 * 3 * 4) has
+  // "* 3 *" in italics), so cells holding formulas are rendered again from their
+  // source, with the same rules as Joplin but formulas set aside first.
   // Cells being edited carry "cm-tw-raw" and are left alone (raw formula shown);
   // Joplin reads cell content only from those raw cells, so the note is never touched.
   const TABLE_CELL = '.cm-tw-text:not(.cm-tw-raw)';
   const RENDERED = '.cm-simple-formula, .cm-simple-formula-error';
 
-  function renderFormulasInCell(cell, scope) {
-    // Already rendered formulas: refresh (a referenced value may have changed).
-    for (const span of cell.querySelectorAll(RENDERED)) {
-      const { expr, name } = span.dataset;
-      if (expr !== undefined) fillSpan(span, expr, name, scope.resultOf(expr, name));
+  // Joplin's row splitting (tableUtils.ts): outer pipes dropped, unescaped "|" splits.
+  function isUnescapedPipe(text, i) {
+    if (text[i] !== '|') return false;
+    let backslashes = 0;
+    for (let j = i - 1; j >= 0 && text[j] === '\\'; j--) backslashes++;
+    return backslashes % 2 === 0;
+  }
+
+  function splitRow(line) {
+    let trimmed = line.trim();
+    if (trimmed.startsWith('|')) trimmed = trimmed.slice(1);
+    if (trimmed.length > 0 && isUnescapedPipe(trimmed, trimmed.length - 1)) trimmed = trimmed.slice(0, -1);
+    const cells = [];
+    let current = '';
+    for (let i = 0; i < trimmed.length; i++) {
+      if (isUnescapedPipe(trimmed, i)) {
+        cells.push(current.trim());
+        current = '';
+      } else {
+        current += trimmed[i];
+      }
+    }
+    cells.push(current.trim());
+    return cells;
+  }
+
+  // Markdown source of a rendered cell, or null if it cannot be found.
+  function cellSource(view, textDiv) {
+    const container = textDiv.closest('[data-from][data-to]');
+    const td = textDiv.closest('td, th');
+    const tr = td && td.closest('tr');
+    if (!container || !tr) return null;
+    const from = Number(container.dataset.from);
+    const to = Number(container.dataset.to);
+    if (!(from >= 0 && to <= view.state.doc.length && from < to)) return null;
+    const lines = view.state.doc.sliceString(from, to).split('\n').filter((l) => l.trim().length > 0);
+    const rows = [...container.querySelectorAll('tr')].filter((r) => r.querySelector('.cm-tw-text'));
+    const rowIndex = rows.indexOf(tr);
+    const colIndex = [...tr.children].filter((c) => c.querySelector('.cm-tw-text')).indexOf(td);
+    if (rowIndex < 0 || colIndex < 0) return null;
+    const line = lines[rowIndex === 0 ? 0 : rowIndex + 1]; // skip the delimiter row
+    if (line === undefined) return null;
+    const cell = splitRow(line)[colIndex];
+    return cell === undefined ? null : cell.replace(/\\\|/g, '|');
+  }
+
+  // Same syntax as Joplin's inlineMarkdownToHtml (renderTables.ts).
+  const INLINE = /\*\*([\s\S]+?)\*\*|__([\s\S]+?)__|(?<![A-Za-z0-9])\*([^*]+)\*(?![A-Za-z0-9])|(?<![A-Za-z0-9])_([^_]+)_(?![A-Za-z0-9])|`([^`]+)`|~~([\s\S]+?)~~|\[([^\]]*)\]\(([^)\s]+)\)/g;
+  const SAFE_HREF = /^(https?:|mailto:|:\/|joplin:|#)/i;
+  const PLACEHOLDER_BASE = 0xe000; // private use area: never Markdown syntax
+  const PLACEHOLDER = /[-]/g;
+
+  // Renders a cell's source with each formula replaced by its result.
+  function renderCell(textDiv, source, scope) {
+    const doc = textDiv.ownerDocument;
+    const formulas = findFormulas(source);
+    let marked = '';
+    let last = 0;
+    formulas.forEach((f, i) => {
+      marked += source.slice(last, f.from) + String.fromCharCode(PLACEHOLDER_BASE + i);
+      last = f.to;
+    });
+    marked += source.slice(last);
+    const restore = (text) =>
+      text.replace(PLACEHOLDER, (c) => {
+        const f = formulas[c.charCodeAt(0) - PLACEHOLDER_BASE];
+        return f ? source.slice(f.from, f.to) : c;
+      });
+
+    function appendText(parent, text) {
+      let start = 0;
+      for (const m of text.matchAll(PLACEHOLDER)) {
+        const f = formulas[m[0].charCodeAt(0) - PLACEHOLDER_BASE];
+        if (!f) continue;
+        if (m.index > start) parent.appendChild(doc.createTextNode(text.slice(start, m.index)));
+        parent.appendChild(fillSpan(doc.createElement('span'), f.expr, f.name, scope.resultOf(f.expr, f.name)));
+        start = m.index + 1;
+      }
+      if (start < text.length) parent.appendChild(doc.createTextNode(text.slice(start)));
     }
 
+    function render(parent, segment) {
+      const re = new RegExp(INLINE.source, 'g');
+      let lastIdx = 0;
+      let m;
+      while ((m = re.exec(segment)) !== null) {
+        if (m.index > lastIdx) appendText(parent, segment.slice(lastIdx, m.index));
+        let el;
+        if (m[1] !== undefined || m[2] !== undefined) {
+          el = doc.createElement('strong');
+          render(el, m[1] !== undefined ? m[1] : m[2]);
+        } else if (m[3] !== undefined || m[4] !== undefined) {
+          el = doc.createElement('em');
+          render(el, m[3] !== undefined ? m[3] : m[4]);
+        } else if (m[5] !== undefined) {
+          el = doc.createElement('code');
+          el.textContent = restore(m[5]); // code is literal: formulas are not computed
+        } else if (m[6] !== undefined) {
+          el = doc.createElement('del');
+          render(el, m[6]);
+        } else {
+          el = doc.createElement('a');
+          const href = restore(m[8]);
+          if (SAFE_HREF.test(href)) el.setAttribute('href', href);
+          render(el, m[7]);
+        }
+        parent.appendChild(el);
+        lastIdx = m.index + m[0].length;
+      }
+      if (lastIdx < segment.length) appendText(parent, segment.slice(lastIdx));
+    }
+
+    textDiv.textContent = '';
+    marked.split(/<br\s*\/?>/i).forEach((segment, i) => {
+      if (i > 0) textDiv.appendChild(doc.createElement('br'));
+      render(textDiv, segment);
+    });
+  }
+
+  // Fallback when the cell source is unknown: replace formulas found in text nodes.
+  function renderFormulasInTextNodes(cell, scope) {
     const doc = cell.ownerDocument;
     const walker = doc.createTreeWalker(cell, 4 /* NodeFilter.SHOW_TEXT */);
     const textNodes = [];
@@ -223,6 +339,25 @@ function createExtension() {
     }
   }
 
+  function renderFormulasInCell(view, cell, scope) {
+    const source = cellSource(view, cell);
+    if (source === null) {
+      renderFormulasInTextNodes(cell, scope);
+      return;
+    }
+    if (!source.includes('=(') || findFormulas(source).length === 0) return;
+    // Skip when already rendered from this source with the same results.
+    const key = source + '\u0000' + findFormulas(source)
+      .map((f) => {
+        const r = scope.resultOf(f.expr, f.name);
+        return r.ok ? r.value : `!${r.error}`;
+      })
+      .join('\u0000');
+    if (cell.dataset.simpleFormula === key && cell.querySelector(RENDERED)) return;
+    renderCell(cell, source, scope);
+    cell.dataset.simpleFormula = key;
+  }
+
   const tableCellPlugin = ViewPlugin.fromClass(
     class {
       constructor(view) {
@@ -240,7 +375,7 @@ function createExtension() {
         // Pause observation while we edit the DOM, to avoid reacting to our own changes.
         this.observer.disconnect();
         const scope = this.view.state.field(scopeField);
-        for (const cell of this.view.dom.querySelectorAll(TABLE_CELL)) renderFormulasInCell(cell, scope);
+        for (const cell of this.view.dom.querySelectorAll(TABLE_CELL)) renderFormulasInCell(this.view, cell, scope);
         this.observer.observe(this.view.dom, {
           childList: true,
           subtree: true,
